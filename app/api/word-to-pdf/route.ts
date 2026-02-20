@@ -1,65 +1,65 @@
-import { checkUsage } from "../lib/usageLimits";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-  await checkUsage("FREE");
-
-  const formData = await req.formData();
-  const file = formData.get("file") as File | null;
-
-  if (!file) {
-    return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
-  }
-
-  const apiKey = process.env.CLOUDCONVERT_API_KEY;
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "CloudConvert API key missing" },
-      { status: 500 }
-    );
-  }
-
   try {
-    // STEP 1 — Create job
-    const jobRes = await fetch("https://api.cloudconvert.com/v2/jobs", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        tasks: {
-          "upload-file": {
-            operation: "import/upload",
-          },
-          "convert-file": {
-            operation: "convert",
-            input: "upload-file",
-            input_format: "docx",
-            output_format: "pdf",
-          },
-          "export-file": {
-            operation: "export/url",
-            input: "convert-file",
-          },
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
+
+    if (!file) {
+      return NextResponse.json(
+        { error: "No file uploaded" },
+        { status: 400 }
+      );
+    }
+
+    const apiKey = process.env.CLOUDCONVERT_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "Missing API key" },
+        { status: 500 }
+      );
+    }
+
+    // 1️⃣ Create job
+    const jobRes = await fetch(
+      "https://api.cloudconvert.com/v2/jobs",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          tasks: {
+            "import-file": {
+              operation: "import/upload",
+            },
+            "convert-file": {
+              operation: "convert",
+              input: "import-file",
+              output_format: "pdf",
+            },
+            "export-file": {
+              operation: "export/url",
+              input: "convert-file",
+            },
+          },
+        }),
+      }
+    );
 
     const jobData = await jobRes.json();
 
     const uploadTask = jobData.data.tasks.find(
-      (t: any) => t.name === "upload-file"
+      (t: any) => t.name === "import-file"
     );
 
-    // STEP 2 — Upload file
+    // 2️⃣ Upload file
     const uploadForm = new FormData();
-
-    Object.entries(uploadTask.result.form.parameters).forEach(([k, v]) =>
-      uploadForm.append(k, v as string)
+    Object.entries(uploadTask.result.form.parameters).forEach(
+      ([key, value]) => uploadForm.append(key, value as string)
     );
-
     uploadForm.append("file", file);
 
     await fetch(uploadTask.result.form.url, {
@@ -67,36 +67,15 @@ export async function POST(req: Request) {
       body: uploadForm,
     });
 
-    // STEP 3 — Wait for conversion
-    let finished = false;
-    let exportUrl = "";
+    // 3️⃣ Wait for conversion
+    const exportTask = jobData.data.tasks.find(
+      (t: any) => t.name === "export-file"
+    );
 
-    while (!finished) {
-      const statusRes = await fetch(
-        `https://api.cloudconvert.com/v2/jobs/${jobData.data.id}`,
-        {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        }
-      );
+    const fileUrl = exportTask.result.files[0].url;
 
-      const statusData = await statusRes.json();
-
-      const exportTask = statusData.data.tasks.find(
-        (t: any) => t.name === "export-file"
-      );
-
-      if (exportTask.status === "finished") {
-        exportUrl = exportTask.result.files[0].url;
-        finished = true;
-      } else if (exportTask.status === "error") {
-        throw new Error("Conversion failed");
-      }
-
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-
-    // STEP 4 — Download PDF
-    const pdfRes = await fetch(exportUrl);
+    // 4️⃣ Download PDF
+    const pdfRes = await fetch(fileUrl);
     const pdfBuffer = await pdfRes.arrayBuffer();
 
     return new NextResponse(pdfBuffer, {
@@ -106,6 +85,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
+    console.error(err);
     return NextResponse.json(
       { error: "Conversion failed" },
       { status: 500 }
