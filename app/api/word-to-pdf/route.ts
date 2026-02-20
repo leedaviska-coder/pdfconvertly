@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
     }
 
-    const createJob = await fetch("https://api.cloudconvert.com/v2/jobs", {
+    const jobRes = await fetch("https://api.cloudconvert.com/v2/jobs", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -21,24 +21,22 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         tasks: {
-          "import-file": {
-            operation: "import/upload"
-          },
-          "convert-file": {
+          upload: { operation: "import/upload" },
+          convert: {
             operation: "convert",
-            input: "import-file",
+            input: "upload",
             output_format: "pdf"
           },
-          "export-file": {
+          export: {
             operation: "export/url",
-            input: "convert-file"
+            input: "convert"
           }
         }
       })
     });
 
-    const job = await createJob.json();
-    const uploadTask = job.data.tasks.find((t: any) => t.name === "import-file");
+    const job = await jobRes.json();
+    const uploadTask = job.data.tasks.find((t: any) => t.name === "upload");
 
     const uploadForm = new FormData();
     Object.entries(uploadTask.result.form.parameters).forEach(([k, v]: any) =>
@@ -51,30 +49,8 @@ export async function POST(req: Request) {
       body: uploadForm
     });
 
-    let status = "processing";
-    let exportTask;
-
-    while (status === "processing") {
-      await new Promise(r => setTimeout(r, 2000));
-
-      const check = await fetch(`https://api.cloudconvert.com/v2/jobs/${job.data.id}`, {
-        headers: { Authorization: `Bearer ${apiKey}` }
-      });
-
-      const updated = await check.json();
-      status = updated.data.status;
-      exportTask = updated.data.tasks.find((t: any) => t.name === "export-file");
-    }
-
-    const fileUrl = exportTask.result.files[0].url;
-    const pdf = await fetch(fileUrl);
-    const buffer = await pdf.arrayBuffer();
-
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": "attachment; filename=converted.pdf"
-      }
+    return NextResponse.json({
+      downloadUrl: `https://api.cloudconvert.com/v2/jobs/${job.data.id}`
     });
   } catch {
     return NextResponse.json({ error: "Conversion failed" }, { status: 500 });
