@@ -1,20 +1,43 @@
-const convert = async () => {
-  if (!file) return;
+"use client";
+import { useState } from "react";
 
-  const data = new FormData();
-  data.append("file", file);
+export default function Page() {
+  const [file, setFile] = useState<File | null>(null);
 
-  const res = await fetch("/api/word-to-pdf", {
-    method: "POST",
-    body: data
-  });
+  const convert = async () => {
+    if (!file) return;
 
-  const json = await res.json();
+    const data = new FormData();
+    data.append("file", file);
 
-  if (!res.ok) {
-    alert("Conversion failed");
-    return;
-  }
+    const res = await fetch("/api/word-to-pdf", {
+      method: "POST",
+      body: data
+    });
 
-  window.open(json.downloadUrl, "_blank");
-};
+    const json = await res.json();
+
+    if (!res.ok) {
+      alert("Conversion failed");
+      return;
+    }
+
+    window.open(json.downloadUrl, "_blank");
+  };
+
+  return (
+    <div style={{ padding: 40 }}>
+      <h2>Word to PDF</h2>
+
+      <input
+        type="file"
+        accept=".doc,.docx"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+      />
+
+      <br /><br />
+
+      <button onClick={convert}>Convert</button>
+    </div>
+  );
+}
